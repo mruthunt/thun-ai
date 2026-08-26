@@ -63,8 +63,8 @@
     font-family: "Baloo 2", "Helvetica Neue", Helvetica, Arial, sans-serif;
     font-weight: 700;
     font-size: 17px;
-    color: rgba(0, 0, 0, 0.4);
-    background: #dcdcdc;
+    color: #ff7a1a;
+    background: rgba(0, 0, 0, 0.4);
     border: none;
     border-radius: 999px;
     padding: 13px 22px;
@@ -89,7 +89,7 @@
      phone is often wider than a typical "mobile" breakpoint */
   @media (pointer: coarse) {
     .footer-note {
-      font-size: 19px;
+      font-size: 23px;
     }
   }
 </style>
@@ -730,6 +730,23 @@
       p.radius = radius;
     });
 
+    render();
+
+    requestAnimationFrame(frame);
+  }
+
+  // drawing only — reads the pills' already-finalized positions without
+  // advancing any physics. split out from frame() so it can also be
+  // called directly from the scroll listener below: iOS Safari can
+  // deprioritize requestAnimationFrame callbacks on the main thread
+  // during an active scroll gesture, which was making the target dot
+  // (and everything else) visibly freeze mid-scroll instead of tracking
+  // tilt smoothly. firing an extra render on the 'scroll' event — which
+  // keeps arriving during the gesture even when rAF stalls — keeps it
+  // visibly live instead of stuck.
+  function render() {
+    const w = window.innerWidth, h = window.innerHeight;
+
     // cluster pills by proximity so marching squares only runs over the
     // small local region where shapes actually meet; isolated pills get
     // their own tight box and render with their exact, untouched outline
@@ -803,9 +820,10 @@
       ctx.arc(mouse.x, mouse.y, 6 * SCALE, 0, Math.PI * 2);
       ctx.fill();
     }
-
-    requestAnimationFrame(frame);
   }
+
+  window.addEventListener('scroll', render, { passive: true });
+
   requestAnimationFrame(frame);
 </script>
 </body>
