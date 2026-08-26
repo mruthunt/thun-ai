@@ -132,12 +132,19 @@
     const homeX = window.innerWidth / 2 + rand(-window.innerWidth * 0.22, window.innerWidth * 0.22);
     const homeY = window.innerHeight / 2 + rand(-window.innerHeight * 0.2, window.innerHeight * 0.2);
 
+    // how far this pill's own outline can reach from its center point —
+    // used to keep the boundary clamp on the OUTLINE, not just the
+    // center, so nothing pokes past the page edge. a little padding
+    // beyond the exact half-extent so the ring's own stroke width and
+    // the soft lead-in cushion below both have a bit of breathing room
+    const margin = Math.max(0, (wOuter - hOuter) / 2) + hOuter / 2 + RING_WIDTH + 2;
+
     return {
       x: homeX,
       y: homeY,
       vx: rand(-0.2, 0.2),
       vy: rand(-0.2, 0.2),
-      w, h, wOuter, hOuter, isCircle,
+      w, h, wOuter, hOuter, isCircle, margin,
       rotBase: rand(-14, 14),
       seed: rand(0, 1000),
       text
@@ -391,11 +398,37 @@
       // an outward push only once the user scrolls
       const tdx = p.x - cx, tdy = p.y - cy;
       const tdist = Math.sqrt(tdx * tdx + tdy * tdy) || 1;
-      // same magnitude both ways, so the pull back to center on the way
-      // in matches the push outward on the way out during scroll
-      const homeForce = (1 - scrollP) * -0.12 + scrollP * 0.12;
+      // return pull is 1.25x the shoot-out push, so pills snap back to
+      // center faster than they were sent outward while scrolling
+      const homeForce = (1 - scrollP) * -0.15 + scrollP * 0.12;
       p.vx += (tdx / tdist) * homeForce;
       p.vy += (tdy / tdist) * homeForce;
+
+      // soft cushion near each wall: ramps in the closer a pill gets
+      // (lead-in) and fades right back out as it moves away after the
+      // bounce (lead-out) — it's just a function of current distance,
+      // so both directions fall out of the same formula for free
+      const WALL_ZONE = 60;
+      const distLeft = p.x - p.margin;
+      if (distLeft < WALL_ZONE) {
+        const t = Math.max(0, 1 - distLeft / WALL_ZONE);
+        p.vx += t * t * 0.5;
+      }
+      const distRight = (w - p.margin) - p.x;
+      if (distRight < WALL_ZONE) {
+        const t = Math.max(0, 1 - distRight / WALL_ZONE);
+        p.vx -= t * t * 0.5;
+      }
+      const distTop = p.y - p.margin;
+      if (distTop < WALL_ZONE) {
+        const t = Math.max(0, 1 - distTop / WALL_ZONE);
+        p.vy += t * t * 0.5;
+      }
+      const distBottom = (h - p.margin) - p.y;
+      if (distBottom < WALL_ZONE) {
+        const t = Math.max(0, 1 - distBottom / WALL_ZONE);
+        p.vy -= t * t * 0.5;
+      }
     });
 
     for (let a = 0; a < pills.length; a++) {
@@ -426,7 +459,7 @@
       p.x += p.vx;
       p.y += p.vy;
 
-      const margin = 10;
+      const margin = p.margin;
       if (p.x < margin) { p.x = margin; p.vx *= -0.6; }
       if (p.x > w - margin) { p.x = w - margin; p.vx *= -0.6; }
       if (p.y < margin) { p.y = margin; p.vy *= -0.6; }
@@ -460,7 +493,7 @@
 
     // finalize positions/rotation and each pill's exact capsule geometry
     pills.forEach(p => {
-      const margin = 10;
+      const margin = p.margin;
       p.x = Math.min(Math.max(p.x, margin), w - margin);
       p.y = Math.min(Math.max(p.y, margin), h - margin);
       p.rot = p.rotBase + Math.sin(time * 0.4 + p.seed) * 4;
@@ -468,12 +501,14 @@
       const tf = `translate(${(p.x - p.w / 2).toFixed(1)}px, ${(p.y - p.h / 2).toFixed(1)}px) rotate(${p.rot.toFixed(1)}deg)`;
       p.text.style.transform = tf;
 
+      const radius = p.hOuter / 2;
       const halfLen = Math.max(0, (p.wOuter - p.hOuter) / 2);
+
       const rad = p.rot * Math.PI / 180;
       const dx = Math.cos(rad) * halfLen, dy = Math.sin(rad) * halfLen;
       p.ax = p.x - dx; p.ay = p.y - dy;
       p.bx = p.x + dx; p.by = p.y + dy;
-      p.radius = p.hOuter / 2;
+      p.radius = radius;
     });
 
     // cluster pills by proximity so marching squares only runs over the
@@ -538,6 +573,16 @@
     });
 
     ctx.stroke();
+
+    // a visible target where the "cursor" actually is right now — mainly
+    // for tilt on touch devices, where there's no real pointer to see,
+    // so this is the only way to tell it's tracking at all
+    if (mouse.active) {
+      ctx.beginPath();
+      ctx.fillStyle = '#ffe14d';
+      ctx.arc(mouse.x, mouse.y, 6 * SCALE, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     requestAnimationFrame(frame);
   }
