@@ -104,12 +104,10 @@
 </div>
 <button id="enableTilt" type="button">enable tilt</button>
 <div class="footer-note">Thunai (துணை) means help, support, companionship, or protector in Tamil</div>
-
 <script>
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d');
   const labelLayer = document.getElementById('labelLayer');
-
   function resizeCanvas() {
     const dpr = window.devicePixelRatio || 1;
     canvas.width = window.innerWidth * dpr;
@@ -120,52 +118,42 @@
   }
   window.addEventListener('resize', resizeCanvas);
   resizeCanvas();
-
   const MOUSE_ENABLED = true;
-
-  // the first 5*3 = 15 entries are five "creating with <feeling>" rows,
-  // read in this exact order — the initial layout below depends on that
-  // grouping. the trailing two empty strings are plain decorative
-  // circles, not part of any row.
+  // five "creating with <feeling>" rows, read in this exact order — the
+  // initial layout below depends on that grouping. no decorative circle
+  // bubbles — every entry here is a real word.
   const words = [
     'creating', 'with', 'joy',
     'creating', 'with', 'focus',
     'creating', 'with', 'passion',
     'creating', 'with', 'delight',
     'creating', 'with', 'care',
-    '', ''
   ];
   const ROW_COUNT = 5, ROW_COLS = 3;
-
   function rand(min, max) { return min + Math.random() * (max - min); }
-
   // overall visual scale of the whole pill system (font, padding, ring
   // thickness, blend softness) — keep this the single source of truth
   // so bumping it up never throws the proportions out of sync
   const SCALE = 1.2;
-
   const RING_WIDTH = 5 * SCALE;
   // how generously nearby pills blend into one another; bigger = softer
   const SOFTNESS = 26 * SCALE;
   const GRID_STEP = 3;
-
   // each word's outer box size, purely a function of its text — the same
   // formula the pill objects below use, computed up front so the initial
   // row layout can place pills edge-to-edge before any pill exists
   function wordBox(label) {
-    const isCircle = label === '';
-    const w = isCircle ? 34 * SCALE : Math.max(80 * SCALE, label.length * 15.5 * SCALE + 20 * SCALE);
-    const h = isCircle ? 34 * SCALE : 38 * SCALE;
+    const w = Math.max(80 * SCALE, label.length * 15.5 * SCALE + 20 * SCALE);
+    const h = 38 * SCALE;
     return { w: w + 10 * SCALE, h: h + 10 * SCALE };
   }
-
   // starting layout: five merged "creating with <feeling>" rows, stacked
   // and centered on the page. the gap between words in a row is kept
   // well under SOFTNESS so each row renders as one continuous merged
   // shape from the very first frame, the same way a mid-scatter cluster
   // does — just tidy instead of scattered.
-  const ROW_MERGE_GAP = 8 * SCALE;
-  const ROW_STACK_GAP = 14 * SCALE;
+  const ROW_MERGE_GAP = 0;
+  const ROW_STACK_GAP = 0;
   const rowCenters = []; // rowCenters[row][col] -> x offset from page center
   const rowY = [];       // rowY[row] -> y offset from page center
   {
@@ -188,58 +176,41 @@
       cursorY += rowHeights[r] + ROW_STACK_GAP;
     }
   }
-
   const pills = words.map((label, i) => {
-    const isCircle = label === '';
     // text box: drives physics/spacing so labels never overlap
-    const w = isCircle ? 34 * SCALE : Math.max(80 * SCALE, label.length * 15.5 * SCALE + 20 * SCALE);
-    const h = isCircle ? 34 * SCALE : 38 * SCALE;
+    const w = Math.max(80 * SCALE, label.length * 15.5 * SCALE + 20 * SCALE);
+    const h = 38 * SCALE;
     // outer fill size, kept close to the text box so the outline reads
     // as a snug ring rather than an oversized pill
     const wOuter = w + 10 * SCALE;
     const hOuter = h + 10 * SCALE;
-
     const text = document.createElement('div');
     text.className = 'label';
     text.style.width = w + 'px';
     text.style.height = h + 'px';
     text.textContent = label;
     labelLayer.appendChild(text);
-
-    // start each word pill in its row-formation slot; the two trailing
-    // empty-string pills are the decorative circles, tucked into
-    // opposite corners with plenty of clearance so they read as
-    // separate shapes rather than merging into the row block
-    let homeX, homeY;
-    if (i < ROW_COUNT * ROW_COLS) {
-      const row = Math.floor(i / ROW_COLS), col = i % ROW_COLS;
-      homeX = window.innerWidth / 2 + rowCenters[row][col];
-      homeY = window.innerHeight / 2 + rowY[row];
-    } else {
-      const corner = i - ROW_COUNT * ROW_COLS;
-      homeX = window.innerWidth * (corner === 0 ? 0.14 : 0.86);
-      homeY = window.innerHeight * (corner === 0 ? 0.16 : 0.84);
-    }
-
+    // start each word pill in its row-formation slot
+    const row = Math.floor(i / ROW_COLS), col = i % ROW_COLS;
+    const homeX = window.innerWidth / 2 + rowCenters[row][col];
+    const homeY = window.innerHeight / 2 + rowY[row];
     // how far this pill's own outline can reach from its center point —
     // used to keep the boundary clamp on the OUTLINE, not just the
     // center, so nothing pokes past the page edge. exact half-extent
     // plus half the stroke width, so the outline can reach all the way
     // to the page edge but never draws past it
     const margin = Math.max(0, (wOuter - hOuter) / 2) + hOuter / 2 + RING_WIDTH / 2;
-
     return {
       x: homeX,
       y: homeY,
       vx: rand(-0.2, 0.2),
       vy: rand(-0.2, 0.2),
-      w, h, wOuter, hOuter, isCircle, margin,
+      w, h, wOuter, hOuter, margin,
       rotBase: rand(-14, 14),
       seed: rand(0, 1000),
       text
     };
   });
-
   // the "scroll" that drives scatter/condense was never really about
   // navigating the page — it's just a gesture input. letting it be a
   // REAL document scroll caused three separate headaches (Safari's
@@ -252,12 +223,10 @@
   // nothing ever hands off to the browser's own scroll handling.
   const stage = document.getElementById('stage');
   let pendingScrollDelta = 0;
-
   window.addEventListener('wheel', e => {
     pendingScrollDelta += e.deltaY;
     e.preventDefault();
   }, { passive: false });
-
   let touchScrollY = null;
   stage.addEventListener('touchstart', e => {
     if (e.touches.length === 1) touchScrollY = e.touches[0].clientY;
@@ -271,7 +240,6 @@
     e.preventDefault();
   }, { passive: false });
   stage.addEventListener('touchend', () => { touchScrollY = null; }, { passive: true });
-
   const mouse = { x: -9999, y: -9999, active: false };
   // pointermove also fires for touch drags (pointerType 'touch'), which
   // would otherwise let a finger drag on mobile drive the cursor target
@@ -285,7 +253,6 @@
     if (e.pointerType === 'touch') return;
     mouse.active = false;
   });
-
   // on touch devices, let the phone's tilt drive the same "cursor" the
   // pills already chase. left-right (gamma) is calibrated from whatever
   // angle the user is holding the phone at when tilt is enabled, since
@@ -295,15 +262,12 @@
   // and ~60° is a natural resting hold, so that's mapped to screen center
   const isTouchDevice = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
   const tiltBtn = document.getElementById('enableTilt');
-
   // tracks whether the "cursor" is currently being driven by tilt rather
   // than a real mouse pointer, so the on-screen target dot only shows up
   // when it's the sole way to see where the cursor is (touch/tilt) —
   // not on desktop, where the real pointer is already visible
   let tiltActive = false;
-
   const BETA_MIN = 0, BETA_CENTER = 60, BETA_MAX = 90;
-
   // beta/gamma are reported relative to the DEVICE's own physical frame,
   // not the screen's visual up/down — so tilting "forward/back" and
   // "left/right" swap places once the phone is rotated into landscape.
@@ -320,11 +284,9 @@
     }
     return 0;
   }
-
   let baseGamma = null;
   function handleOrientation(e) {
     if (e.beta === null || e.gamma === null) return;
-
     // remap the device's raw beta/gamma into screen-relative values
     // based on the current rotation, so "tilt toward me" and "tilt
     // side to side" keep meaning the same thing on screen regardless
@@ -343,11 +305,9 @@
       screenBeta = -e.beta;
       screenGamma = -e.gamma;
     }
-
     if (baseGamma === null) baseGamma = screenGamma;
     const dGamma = Math.max(-45, Math.min(45, screenGamma - baseGamma));
     let tx = window.innerWidth / 2 + (dGamma / 45) * (window.innerWidth / 2) * 0.9;
-
     // piecewise-linear: center (0 offset) at 60°, clamped ends at 0°
     // and 90° — the two halves aren't equal width, so each is scaled
     // against its own span rather than one shared ±range
@@ -356,7 +316,6 @@
       ? (beta - BETA_CENTER) / (BETA_CENTER - BETA_MIN)
       : (beta - BETA_CENTER) / (BETA_MAX - BETA_CENTER);
     let ty = window.innerHeight / 2 + nBeta * (window.innerHeight / 2) * 0.9;
-
     // near beta = 90° (phone held upright — the far end of our range,
     // which lands in the bottom half of the screen) the orientation
     // sensor's own angles become unstable (a known gimbal-lock zone in
@@ -371,12 +330,10 @@
     mouse.active = true;
     tiltActive = true;
   }
-
   function enableTilt() {
     window.addEventListener('deviceorientation', handleOrientation);
     tiltBtn.style.display = 'none';
   }
-
   if (isTouchDevice && window.DeviceOrientationEvent) {
     tiltBtn.style.display = 'block';
     tiltBtn.addEventListener('click', () => {
@@ -389,7 +346,6 @@
       }
     });
   }
-
   // scroll direction (not position) drives the pills: scrolling down
   // always scatters them outward, scrolling up always condenses them
   // back in. scrollVel is a lightly smoothed, SIGNED velocity (+ down,
@@ -397,12 +353,10 @@
   // being jittery frame to frame
   let scrollVel = 0;
   let lastScrollActivity = -Infinity;
-
   // pills start pinned in the five-row formation with no physics running
   // at all — the very first scroll (any direction) is what wakes the
   // whole simulation up and lets it scatter into free motion
   let hasScattered = false;
-
   // a click works just as well as a scroll to kick off the same first
   // disperse — feeds a scatter-sized delta into the same pipeline a real
   // scroll would, so it's indistinguishable from scrolling down once it
@@ -413,7 +367,6 @@
     lastScrollActivity = performance.now();
     pendingScrollDelta += 40;
   });
-
   // exact distance to a capsule (stadium) from point a to point b with
   // radius r; a circle is just the special case a === b
   function sdCapsule(px, py, ax, ay, bx, by, r) {
@@ -423,7 +376,6 @@
     const dx = pax - bax * h, dy = pay - bay * h;
     return Math.sqrt(dx * dx + dy * dy) - r;
   }
-
   // polynomial smooth-minimum: blends two distance fields with a soft,
   // rounded transition instead of a hard crossing point. shapes that
   // are far apart (relative to k) fall back to an exact, undistorted min
@@ -431,7 +383,6 @@
     const h = Math.max(k - Math.abs(a - b), 0) / k;
     return Math.min(a, b) - h * h * k * 0.25;
   }
-
   // marching-squares edge table: for each of the 16 corner-inside
   // combinations, which edges (T/R/B/L) get connected by a segment
   const CASES = {
@@ -441,22 +392,18 @@
     12: ['L', 'R'], 13: ['B', 'R'], 14: ['L', 'B']
   };
   const AMBIGUOUS = { 5: [['T', 'L'], ['B', 'R']], 10: [['T', 'R'], ['B', 'L']] };
-
   // reused every frame instead of being reallocated, to cut GC churn
   const parent = new Int32Array(pills.length);
   const clusters = new Map();
-
   // reused across frames/clusters to avoid allocating a fresh typed
   // array 60 times a second, which was a source of GC-related stutter
   let scratch = new Float32Array(256 * 256);
-
   // packs an edge's type + grid coordinates into one integer so shared
   // edges between adjacent cells always resolve to the identical key —
   // an int key is much faster in a Map than building a string each time
   function edgeKeyInt(isHorizontal, i, j) {
     return (isHorizontal ? 1 : 0) * 16777216 + i * 4096 + j;
   }
-
   function marchCluster(group, minX, minY, maxX, maxY, step, drawChain) {
     const cols = Math.max(1, Math.ceil((maxX - minX) / step));
     const rows = Math.max(1, Math.ceil((maxY - minY) / step));
@@ -465,7 +412,6 @@
     const vals = scratch;
     const stride = cols + 1;
     const n = group.length;
-
     // cheap bounding-circle center/radius per shape, used below to skip
     // shapes that are clearly too far from a sample point to matter —
     // this cuts cost without coarsening the grid (which just makes the
@@ -477,7 +423,6 @@
       rcy[k] = (p.ay + p.by) / 2;
       rr[k] = p.radius + Math.hypot(p.bx - p.ax, p.by - p.ay) / 2;
     }
-
     for (let j = 0; j <= rows; j++) {
       const py = minY + j * step;
       const rowBase = j * stride;
@@ -497,7 +442,6 @@
         vals[rowBase + i] = d;
       }
     }
-
     const at = (i, j) => vals[j * stride + i];
     const edgePoint = (edge, i, j) => {
       const x0 = minX + i * step, y0 = minY + j * step;
@@ -529,7 +473,6 @@
       if (edge === 'L') return edgeKeyInt(false, i, j);
       return edgeKeyInt(false, i + 1, j);
     };
-
     // collect every crossing segment first, keyed by the grid edge each
     // endpoint sits on, then stitch them into continuous chains below —
     // stroking one connected path per contour instead of hundreds of
@@ -552,7 +495,6 @@
       }
     }
     const segCount = aKeys.length;
-
     const adjacency = new Map();
     for (let s = 0; s < segCount; s++) {
       let arrA = adjacency.get(aKeys[s]);
@@ -562,7 +504,6 @@
       if (!arrB) { arrB = []; adjacency.set(bKeys[s], arrB); }
       arrB.push(aKeys[s], aPts[s], s);
     }
-
     const used = new Uint8Array(segCount);
     for (let startIdx = 0; startIdx < segCount; startIdx++) {
       if (used[startIdx]) continue;
@@ -585,18 +526,15 @@
       drawChain(chain);
     }
   }
-
   function frame(now) {
     const time = now / 1000;
     const w = window.innerWidth, h = window.innerHeight;
     const cx = w / 2, cy = h / 2;
-
     // consume whatever wheel/touch input has accumulated since the last
     // frame — there's no real document scroll position to read anymore
     const rawScrollDelta = pendingScrollDelta;
     pendingScrollDelta = 0;
     scrollVel = scrollVel * 0.8 + rawScrollDelta * 0.2;
-
     // the very first scroll — either direction — is what wakes the
     // simulation up. before that, pills stay pinned exactly in their
     // row-formation slots with no forces applied at all.
@@ -604,7 +542,6 @@
       hasScattered = true;
       lastScrollActivity = now;
     }
-
     if (hasScattered) {
       // how "fresh" the last scroll motion is, from 1 (just happened) to
       // 0 (a couple seconds ago or more) — used below both for the
@@ -614,13 +551,11 @@
       const FRESH_MS = 2500;
       const scrollT = Math.max(-1, Math.min(1, scrollVel / 4));
       const freshness = Math.max(0, 1 - (now - lastScrollActivity) / FRESH_MS);
-
       pills.forEach(p => {
         const wanderX = Math.sin(time * 0.15 + p.seed) * 0.05;
         const wanderY = Math.cos(time * 0.13 + p.seed * 1.7) * 0.05;
         p.vx += wanderX * 0.03;
         p.vy += wanderY * 0.03;
-
         if (MOUSE_ENABLED && mouse.active) {
           const dx = mouse.x - p.x, dy = mouse.y - p.y;
           const dist = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -630,7 +565,6 @@
             p.vy += (dy / dist) * pull * 0.4;
           }
         }
-
         // scrolling down always scatters pills outward; scrolling up
         // always condenses them back in — direction maps directly to
         // direction, no ambiguity. condense is still the stronger of
@@ -642,7 +576,6 @@
         const homeForce = scrollT > 0 ? scrollT * 0.9 : scrollT * 1.1;
         p.vx += (tdx / tdist) * homeForce;
         p.vy += (tdy / tdist) * homeForce;
-
         // soft cushion near each wall: ramps in the closer a pill gets
         // (lead-in) and fades right back out as it moves away after the
         // bounce (lead-out) — it's just a function of current distance,
@@ -672,7 +605,6 @@
           p.vy -= t * t * 0.12;
         }
       });
-
       for (let a = 0; a < pills.length; a++) {
         for (let b = a + 1; b < pills.length; b++) {
           const pa = pills[a], pb = pills[b];
@@ -687,7 +619,6 @@
           }
         }
       }
-
       // the speed cap itself, not the push strength, was the real
       // bottleneck: a constant push this strong reaches ANY cap within a
       // few frames, so the cap alone decided how far pills could travel.
@@ -695,7 +626,6 @@
       // actually cross the page, easing back to the calm resting cap as
       // that freshness fades.
       const maxSpeedNow = 1.3 + freshness * 9;
-
       pills.forEach(p => {
         p.vx *= 0.94;
         p.vy *= 0.94;
@@ -705,17 +635,14 @@
           p.vx = (p.vx / speed) * maxSpeed;
           p.vy = (p.vy / speed) * maxSpeed;
         }
-
         p.x += p.vx;
         p.y += p.vy;
-
         const margin = p.margin;
         if (p.x < margin) { p.x = margin; p.vx *= -0.35; }
         if (p.x > w - margin) { p.x = w - margin; p.vx *= -0.35; }
         if (p.y < margin) { p.y = margin; p.vy *= -0.35; }
         if (p.y > h - margin) { p.y = h - margin; p.vy *= -0.35; }
       });
-
       // hard separation pass: labels are never allowed to overlap, even
       // while the blob shapes visually touch or merge at the edges
       const pad = 6;
@@ -741,7 +668,6 @@
         }
       }
     }
-
     // finalize positions/rotation and each pill's exact capsule geometry
     pills.forEach(p => {
       const margin = p.margin;
@@ -750,30 +676,23 @@
       // stay flat and tidy in the row formation; only start the gentle
       // per-pill wobble once things have scattered into free motion
       p.rot = hasScattered ? p.rotBase + Math.sin(time * 0.4 + p.seed) * 4 : 0;
-
       const tf = `translate(${(p.x - p.w / 2).toFixed(1)}px, ${(p.y - p.h / 2).toFixed(1)}px) rotate(${p.rot.toFixed(1)}deg)`;
       p.text.style.transform = tf;
-
       const radius = p.hOuter / 2;
       const halfLen = Math.max(0, (p.wOuter - p.hOuter) / 2);
-
       const rad = p.rot * Math.PI / 180;
       const dx = Math.cos(rad) * halfLen, dy = Math.sin(rad) * halfLen;
       p.ax = p.x - dx; p.ay = p.y - dy;
       p.bx = p.x + dx; p.by = p.y + dy;
       p.radius = radius;
     });
-
     render();
-
     requestAnimationFrame(frame);
   }
-
   // drawing only — reads the pills' already-finalized positions without
   // advancing any physics
   function render() {
     const w = window.innerWidth, h = window.innerHeight;
-
     // cluster pills by proximity so marching squares only runs over the
     // small local region where shapes actually meet; isolated pills get
     // their own tight box and render with their exact, untouched outline
@@ -799,7 +718,6 @@
       if (!group) { group = []; clusters.set(root, group); }
       group.push(p);
     });
-
     ctx.clearRect(0, 0, w, h);
     ctx.strokeStyle = '#ffe14d';
     ctx.lineWidth = RING_WIDTH;
@@ -811,7 +729,6 @@
     ctx.lineJoin = 'miter';
     ctx.lineCap = 'butt';
     ctx.beginPath();
-
     clusters.forEach(group => {
       // raw extent of the shapes first, then pad ONCE at the end —
       // padding inside the loop compounded per shape and made bigger
@@ -828,15 +745,12 @@
       const pad = maxRadius + SOFTNESS + RING_WIDTH * 2;
       minX -= pad; maxX += pad;
       minY -= pad; maxY += pad;
-
       marchCluster(group, minX, minY, maxX, maxY, GRID_STEP, chain => {
         ctx.moveTo(chain[0][0], chain[0][1]);
         for (let i = 1; i < chain.length; i++) ctx.lineTo(chain[i][0], chain[i][1]);
       });
     });
-
     ctx.stroke();
-
     // a visible target where the "cursor" actually is right now — only
     // for tilt on touch devices, where there's no real pointer to see,
     // so this is the only way to tell it's tracking at all. hidden on
@@ -848,7 +762,6 @@
       ctx.fill();
     }
   }
-
   requestAnimationFrame(frame);
 </script>
 </body>
