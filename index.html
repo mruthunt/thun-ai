@@ -47,9 +47,24 @@
     font-family: "Baloo 2", "Helvetica Neue", Helvetica, Arial, sans-serif;
     font-weight: 700;
     color: #ffe14d;
-    font-size: 21px;
+    font-size: 25.2px;
     text-align: center;
     white-space: nowrap;
+  }
+  #enableTilt {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 2;
+    font-family: "Baloo 2", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    color: #ffe14d;
+    background: rgba(0, 0, 0, 0.22);
+    border: none;
+    border-radius: 999px;
+    padding: 10px 18px;
+    display: none;
   }
 </style>
 </head>
@@ -58,6 +73,7 @@
   <canvas id="canvas"></canvas>
   <div class="label-layer" id="labelLayer"></div>
 </div>
+<button id="enableTilt" type="button">enable tilt</button>
 
 <script>
   const canvas = document.getElementById('canvas');
@@ -86,20 +102,25 @@
 
   function rand(min, max) { return min + Math.random() * (max - min); }
 
-  const RING_WIDTH = 5;
+  // overall visual scale of the whole pill system (font, padding, ring
+  // thickness, blend softness) — keep this the single source of truth
+  // so bumping it up never throws the proportions out of sync
+  const SCALE = 1.2;
+
+  const RING_WIDTH = 5 * SCALE;
   // how generously nearby pills blend into one another; bigger = softer
-  const SOFTNESS = 26;
+  const SOFTNESS = 26 * SCALE;
   const GRID_STEP = 3;
 
   const pills = words.map((label, i) => {
     const isCircle = label === '';
     // text box: drives physics/spacing so labels never overlap
-    const w = isCircle ? 34 : Math.max(80, label.length * 15.5 + 20);
-    const h = isCircle ? 34 : 38;
+    const w = isCircle ? 34 * SCALE : Math.max(80 * SCALE, label.length * 15.5 * SCALE + 20 * SCALE);
+    const h = isCircle ? 34 * SCALE : 38 * SCALE;
     // outer fill size, kept close to the text box so the outline reads
     // as a snug ring rather than an oversized pill
-    const wOuter = w + 10;
-    const hOuter = h + 10;
+    const wOuter = w + 10 * SCALE;
+    const hOuter = h + 10 * SCALE;
 
     const text = document.createElement('div');
     text.className = 'label';
@@ -128,6 +149,42 @@
     mouse.x = e.clientX; mouse.y = e.clientY; mouse.active = true;
   });
   window.addEventListener('pointerleave', () => { mouse.active = false; });
+
+  // on touch devices, let the phone's tilt drive the same "cursor" the
+  // pills already chase — calibrated from whatever angle the user is
+  // holding the phone at when tilt is enabled, rather than an assumed
+  // flat orientation
+  const isTouchDevice = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+  const tiltBtn = document.getElementById('enableTilt');
+
+  let baseBeta = null, baseGamma = null;
+  function handleOrientation(e) {
+    if (e.beta === null || e.gamma === null) return;
+    if (baseBeta === null) { baseBeta = e.beta; baseGamma = e.gamma; }
+    const dBeta = Math.max(-45, Math.min(45, e.beta - baseBeta));
+    const dGamma = Math.max(-45, Math.min(45, e.gamma - baseGamma));
+    mouse.x = window.innerWidth / 2 + (dGamma / 45) * (window.innerWidth / 2) * 0.9;
+    mouse.y = window.innerHeight / 2 + (dBeta / 45) * (window.innerHeight / 2) * 0.9;
+    mouse.active = true;
+  }
+
+  function enableTilt() {
+    window.addEventListener('deviceorientation', handleOrientation);
+    tiltBtn.style.display = 'none';
+  }
+
+  if (isTouchDevice && window.DeviceOrientationEvent) {
+    tiltBtn.style.display = 'block';
+    tiltBtn.addEventListener('click', () => {
+      if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission().then(state => {
+          if (state === 'granted') enableTilt();
+        }).catch(() => {});
+      } else {
+        enableTilt();
+      }
+    });
+  }
 
   let scrollP = 0;
   function updateScroll() {
@@ -283,7 +340,9 @@
       // an outward push only once the user scrolls
       const tdx = p.x - cx, tdy = p.y - cy;
       const tdist = Math.sqrt(tdx * tdx + tdy * tdy) || 1;
-      const homeForce = (1 - scrollP) * -0.045 + scrollP * 0.12;
+      // same magnitude both ways, so the pull back to center on the way
+      // in matches the push outward on the way out during scroll
+      const homeForce = (1 - scrollP) * -0.12 + scrollP * 0.12;
       p.vx += (tdx / tdist) * homeForce;
       p.vy += (tdy / tdist) * homeForce;
     });
@@ -395,8 +454,13 @@
     ctx.clearRect(0, 0, w, h);
     ctx.strokeStyle = '#ffe14d';
     ctx.lineWidth = RING_WIDTH;
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
+    // marching-squares segments meet at exactly matching coordinates
+    // (verified: adjacent cells interpolate from the same shared corner
+    // values), so round joins/caps buy nothing visually here — they were
+    // just forcing the browser to rasterize a round cap on every one of
+    // the many tiny segments, which got expensive fast on big clusters
+    ctx.lineJoin = 'miter';
+    ctx.lineCap = 'butt';
     ctx.beginPath();
 
     clusters.forEach(group => {
