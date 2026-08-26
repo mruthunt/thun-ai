@@ -134,10 +134,10 @@
 
     // how far this pill's own outline can reach from its center point —
     // used to keep the boundary clamp on the OUTLINE, not just the
-    // center, so nothing pokes past the page edge. a little padding
-    // beyond the exact half-extent so the ring's own stroke width and
-    // the soft lead-in cushion below both have a bit of breathing room
-    const margin = Math.max(0, (wOuter - hOuter) / 2) + hOuter / 2 + RING_WIDTH + 2;
+    // center, so nothing pokes past the page edge. exact half-extent
+    // plus half the stroke width, so the outline can reach all the way
+    // to the page edge but never draws past it
+    const margin = Math.max(0, (wOuter - hOuter) / 2) + hOuter / 2 + RING_WIDTH / 2;
 
     return {
       x: homeX,
@@ -158,21 +158,40 @@
   window.addEventListener('pointerleave', () => { mouse.active = false; });
 
   // on touch devices, let the phone's tilt drive the same "cursor" the
-  // pills already chase — calibrated from whatever angle the user is
-  // holding the phone at when tilt is enabled, rather than an assumed
-  // flat orientation
+  // pills already chase. left-right (gamma) is calibrated from whatever
+  // angle the user is holding the phone at when tilt is enabled, since
+  // there's no universal "neutral" side-tilt. front-back (beta) instead
+  // uses the actual physical angle: roughly 0°-90° is the range where
+  // someone can tilt a phone and still comfortably look at the screen,
+  // and ~60° is a natural resting hold, so that's mapped to screen center
   const isTouchDevice = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
   const tiltBtn = document.getElementById('enableTilt');
 
-  let baseBeta = null, baseGamma = null;
+  // tracks whether the "cursor" is currently being driven by tilt rather
+  // than a real mouse pointer, so the on-screen target dot only shows up
+  // when it's the sole way to see where the cursor is (touch/tilt) —
+  // not on desktop, where the real pointer is already visible
+  let tiltActive = false;
+
+  const BETA_MIN = 0, BETA_CENTER = 60, BETA_MAX = 90;
+
+  let baseGamma = null;
   function handleOrientation(e) {
     if (e.beta === null || e.gamma === null) return;
-    if (baseBeta === null) { baseBeta = e.beta; baseGamma = e.gamma; }
-    const dBeta = Math.max(-45, Math.min(45, e.beta - baseBeta));
+    if (baseGamma === null) baseGamma = e.gamma;
     const dGamma = Math.max(-45, Math.min(45, e.gamma - baseGamma));
     mouse.x = window.innerWidth / 2 + (dGamma / 45) * (window.innerWidth / 2) * 0.9;
-    mouse.y = window.innerHeight / 2 + (dBeta / 45) * (window.innerHeight / 2) * 0.9;
+
+    // piecewise-linear: center (0 offset) at 60°, clamped ends at 0°
+    // and 90° — the two halves aren't equal width, so each is scaled
+    // against its own span rather than one shared ±range
+    const beta = Math.max(BETA_MIN, Math.min(BETA_MAX, e.beta));
+    const nBeta = beta <= BETA_CENTER
+      ? (beta - BETA_CENTER) / (BETA_CENTER - BETA_MIN)
+      : (beta - BETA_CENTER) / (BETA_MAX - BETA_CENTER);
+    mouse.y = window.innerHeight / 2 + nBeta * (window.innerHeight / 2) * 0.9;
     mouse.active = true;
+    tiltActive = true;
   }
 
   function enableTilt() {
@@ -193,13 +212,15 @@
     });
   }
 
-  let scrollP = 0;
-  function updateScroll() {
-    const max = document.body.scrollHeight - window.innerHeight;
-    scrollP = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0;
-  }
-  window.addEventListener('scroll', updateScroll, { passive: true });
-  updateScroll();
+  // scroll no longer holds a fixed "how far down the page" bias — only
+  // scroll VELOCITY drives the pills now, so the pull is always
+  // momentary. scrollEcho is an envelope follower: it snaps up instantly
+  // with scroll speed, then decays slowly, so the GAP between it and the
+  // current (fast-settling) speed is large right after scrolling stops
+  // and fades back to zero shortly after — that gap is what drives the
+  // condensing "snap back together" pulse below
+  let lastScrollY = window.scrollY;
+  let scrollEcho = 0;
 
   // exact distance to a capsule (stadium) from point a to point b with
   // radius r; a circle is just the special case a === b
@@ -378,6 +399,12 @@
     const w = window.innerWidth, h = window.innerHeight;
     const cx = w / 2, cy = h / 2;
 
+    const currentScrollY = window.scrollY;
+    const scrollSpeed = Math.abs(currentScrollY - lastScrollY);
+    lastScrollY = currentScrollY;
+    scrollEcho = scrollSpeed > scrollEcho ? scrollSpeed : scrollEcho * 0.93;
+    const condenseGap = Math.max(0, scrollEcho - scrollSpeed);
+
     pills.forEach(p => {
       const wanderX = Math.sin(time * 0.15 + p.seed) * 0.05;
       const wanderY = Math.cos(time * 0.13 + p.seed * 1.7) * 0.05;
@@ -387,47 +414,56 @@
       if (mouse.active) {
         const dx = mouse.x - p.x, dy = mouse.y - p.y;
         const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        if (dist < 220) {
-          const pull = (1 - dist / 220);
-          p.vx += (dx / dist) * pull * 0.22;
-          p.vy += (dy / dist) * pull * 0.22;
+        if (dist < 260) {
+          const pull = (1 - dist / 260);
+          p.vx += (dx / dist) * pull * 0.4;
+          p.vy += (dy / dist) * pull * 0.4;
         }
       }
 
-      // gentle pull toward the middle of the screen at rest, easing into
-      // an outward push only once the user scrolls
+      // scroll MOTION scatters pills outward while it's actively
+      // happening; the instant it eases off, a stronger "snap back
+      // together" pulse gathers them back in (same condense > scatter
+      // bias as before), then fades to nothing. because it's driven by
+      // velocity rather than scroll position, it never settles into a
+      // fixed pull — once it fades, the (now stronger) mouse pull above
+      // is what decides where things gravitate at rest
       const tdx = p.x - cx, tdy = p.y - cy;
       const tdist = Math.sqrt(tdx * tdx + tdy * tdy) || 1;
-      // return pull is 1.25x the shoot-out push, so pills snap back to
-      // center faster than they were sent outward while scrolling
-      const homeForce = (1 - scrollP) * -0.15 + scrollP * 0.12;
+      const SCROLL_NORM = 6;
+      const scatterT = Math.min(1, scrollSpeed / SCROLL_NORM);
+      const condenseT = Math.min(1, condenseGap / SCROLL_NORM);
+      const homeForce = scatterT * 0.4 - condenseT * 0.5;
       p.vx += (tdx / tdist) * homeForce;
       p.vy += (tdy / tdist) * homeForce;
 
       // soft cushion near each wall: ramps in the closer a pill gets
       // (lead-in) and fades right back out as it moves away after the
       // bounce (lead-out) — it's just a function of current distance,
-      // so both directions fall out of the same formula for free
-      const WALL_ZONE = 60;
+      // so both directions fall out of the same formula for free. kept
+      // light enough that it only takes the edge off the bounce instead
+      // of stopping pills short of the wall — the outline should still
+      // be able to reach all the way to it
+      const WALL_ZONE = 22;
       const distLeft = p.x - p.margin;
       if (distLeft < WALL_ZONE) {
         const t = Math.max(0, 1 - distLeft / WALL_ZONE);
-        p.vx += t * t * 0.5;
+        p.vx += t * t * 0.12;
       }
       const distRight = (w - p.margin) - p.x;
       if (distRight < WALL_ZONE) {
         const t = Math.max(0, 1 - distRight / WALL_ZONE);
-        p.vx -= t * t * 0.5;
+        p.vx -= t * t * 0.12;
       }
       const distTop = p.y - p.margin;
       if (distTop < WALL_ZONE) {
         const t = Math.max(0, 1 - distTop / WALL_ZONE);
-        p.vy += t * t * 0.5;
+        p.vy += t * t * 0.12;
       }
       const distBottom = (h - p.margin) - p.y;
       if (distBottom < WALL_ZONE) {
         const t = Math.max(0, 1 - distBottom / WALL_ZONE);
-        p.vy -= t * t * 0.5;
+        p.vy -= t * t * 0.12;
       }
     });
 
@@ -574,13 +610,19 @@
 
     ctx.stroke();
 
-    // a visible target where the "cursor" actually is right now — mainly
+    // a visible target where the "cursor" actually is right now — only
     // for tilt on touch devices, where there's no real pointer to see,
-    // so this is the only way to tell it's tracking at all
-    if (mouse.active) {
+    // so this is the only way to tell it's tracking at all. hidden on
+    // desktop, where the real mouse pointer already shows this.
+    if (tiltActive && mouse.active) {
+      const glowR = 22 * SCALE;
+      const glow = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, glowR);
+      glow.addColorStop(0, 'rgba(255,225,77,0.95)');
+      glow.addColorStop(0.35, 'rgba(255,225,77,0.55)');
+      glow.addColorStop(1, 'rgba(255,225,77,0)');
       ctx.beginPath();
-      ctx.fillStyle = '#ffe14d';
-      ctx.arc(mouse.x, mouse.y, 6 * SCALE, 0, Math.PI * 2);
+      ctx.fillStyle = glow;
+      ctx.arc(mouse.x, mouse.y, glowR, 0, Math.PI * 2);
       ctx.fill();
     }
 
