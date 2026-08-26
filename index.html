@@ -228,8 +228,18 @@
     e.preventDefault();
   }, { passive: false });
   let touchScrollY = null;
+  // a plain tap (minimal movement, short duration) also needs to kick
+  // off the first scatter, same as a mouse click — tracked separately
+  // from touchScrollY since a tap technically starts a "drag" of zero
+  // distance and should still count as one
+  let tapStartX = null, tapStartY = null, tapStartTime = 0;
   stage.addEventListener('touchstart', e => {
-    if (e.touches.length === 1) touchScrollY = e.touches[0].clientY;
+    if (e.touches.length === 1) {
+      touchScrollY = e.touches[0].clientY;
+      tapStartX = e.touches[0].clientX;
+      tapStartY = e.touches[0].clientY;
+      tapStartTime = performance.now();
+    }
   }, { passive: true });
   stage.addEventListener('touchmove', e => {
     if (touchScrollY === null || e.touches.length !== 1) return;
@@ -239,7 +249,22 @@
     touchScrollY = y;
     e.preventDefault();
   }, { passive: false });
-  stage.addEventListener('touchend', () => { touchScrollY = null; }, { passive: true });
+  stage.addEventListener('touchend', e => {
+    touchScrollY = null;
+    // .stage has touch-action:none, which suppresses the browser's own
+    // synthetic 'click' event for touches inside it (the same reason
+    // #enableTilt was moved outside .stage earlier), so a tap here never
+    // reached the click listener below — detect it directly instead:
+    // little movement, short duration, counts the same as a click.
+    if (tapStartX !== null && e.changedTouches.length === 1) {
+      const t = e.changedTouches[0];
+      const dx = t.clientX - tapStartX, dy = t.clientY - tapStartY;
+      const moved = Math.sqrt(dx * dx + dy * dy);
+      const duration = performance.now() - tapStartTime;
+      if (moved < 10 && duration < 500) triggerFirstScatter();
+    }
+    tapStartX = null;
+  }, { passive: true });
   const mouse = { x: -9999, y: -9999, active: false };
   // pointermove also fires for touch drags (pointerType 'touch'), which
   // would otherwise let a finger drag on mobile drive the cursor target
@@ -357,16 +382,18 @@
   // at all — the very first scroll (any direction) is what wakes the
   // whole simulation up and lets it scatter into free motion
   let hasScattered = false;
-  // a click works just as well as a scroll to kick off the same first
-  // disperse — feeds a scatter-sized delta into the same pipeline a real
-  // scroll would, so it's indistinguishable from scrolling down once it
-  // lands. only fires once, before the real thing has already happened.
-  window.addEventListener('click', () => {
+  // a click (desktop) or a tap (mobile, detected in touchend above)
+  // works just as well as a scroll to kick off the same first disperse —
+  // feeds a scatter-sized delta into the same pipeline a real scroll
+  // would, so it's indistinguishable from scrolling down once it lands.
+  // only fires once, before the real thing has already happened.
+  function triggerFirstScatter() {
     if (hasScattered) return;
     hasScattered = true;
     lastScrollActivity = performance.now();
     pendingScrollDelta += 40;
-  });
+  }
+  window.addEventListener('click', triggerFirstScatter);
   // exact distance to a capsule (stadium) from point a to point b with
   // radius r; a circle is just the special case a === b
   function sdCapsule(px, py, ax, ay, bx, by, r) {
