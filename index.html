@@ -230,7 +230,14 @@
   // array 60 times a second, which was a source of GC-related stutter
   let scratch = new Float32Array(256 * 256);
 
-  function marchCluster(group, minX, minY, maxX, maxY, step, draw) {
+  // packs an edge's type + grid coordinates into one integer so shared
+  // edges between adjacent cells always resolve to the identical key —
+  // an int key is much faster in a Map than building a string each time
+  function edgeKeyInt(isHorizontal, i, j) {
+    return (isHorizontal ? 1 : 0) * 16777216 + i * 4096 + j;
+  }
+
+  function marchCluster(group, minX, minY, maxX, maxY, step, drawChain) {
     const cols = Math.max(1, Math.ceil((maxX - minX) / step));
     const rows = Math.max(1, Math.ceil((maxY - minY) / step));
     const need = (cols + 1) * (rows + 1);
@@ -293,25 +300,69 @@
       const t = v1 / (v1 - v2);
       return [x0 + step, y0 + t * step];
     };
+    // top/bottom edges of adjacent cells (and left/right likewise) refer
+    // to the exact same grid corners, so this always produces matching
+    // keys for a shared edge regardless of which cell asks for it
+    const edgeKey = (edge, i, j) => {
+      if (edge === 'T') return edgeKeyInt(true, i, j);
+      if (edge === 'B') return edgeKeyInt(true, i, j + 1);
+      if (edge === 'L') return edgeKeyInt(false, i, j);
+      return edgeKeyInt(false, i + 1, j);
+    };
 
+    // collect every crossing segment first, keyed by the grid edge each
+    // endpoint sits on, then stitch them into continuous chains below —
+    // stroking one connected path per contour instead of hundreds of
+    // separate tiny segments is what removes the fuzzy/aliased seams
+    const aKeys = [], bKeys = [], aPts = [], bPts = [];
     for (let j = 0; j < rows; j++) {
       for (let i = 0; i < cols; i++) {
         const tl = at(i, j) < 0, tr = at(i + 1, j) < 0;
         const br = at(i + 1, j + 1) < 0, bl = at(i, j + 1) < 0;
         const code = (tl ? 8 : 0) | (tr ? 4 : 0) | (br ? 2 : 0) | (bl ? 1 : 0);
         if (code === 0 || code === 15) continue;
-        if (AMBIGUOUS[code]) {
-          const pairs = AMBIGUOUS[code];
-          for (let pi = 0; pi < pairs.length; pi++) {
-            const p1 = edgePoint(pairs[pi][0], i, j), p2 = edgePoint(pairs[pi][1], i, j);
-            draw(p1, p2);
-          }
-        } else if (CASES[code]) {
-          const pair = CASES[code];
-          const p1 = edgePoint(pair[0], i, j), p2 = edgePoint(pair[1], i, j);
-          draw(p1, p2);
+        const pairsList = AMBIGUOUS[code] ? AMBIGUOUS[code] : (CASES[code] ? [CASES[code]] : []);
+        for (let pi = 0; pi < pairsList.length; pi++) {
+          const pair = pairsList[pi];
+          aKeys.push(edgeKey(pair[0], i, j));
+          bKeys.push(edgeKey(pair[1], i, j));
+          aPts.push(edgePoint(pair[0], i, j));
+          bPts.push(edgePoint(pair[1], i, j));
         }
       }
+    }
+    const segCount = aKeys.length;
+
+    const adjacency = new Map();
+    for (let s = 0; s < segCount; s++) {
+      let arrA = adjacency.get(aKeys[s]);
+      if (!arrA) { arrA = []; adjacency.set(aKeys[s], arrA); }
+      arrA.push(bKeys[s], bPts[s], s);
+      let arrB = adjacency.get(bKeys[s]);
+      if (!arrB) { arrB = []; adjacency.set(bKeys[s], arrB); }
+      arrB.push(aKeys[s], aPts[s], s);
+    }
+
+    const used = new Uint8Array(segCount);
+    for (let startIdx = 0; startIdx < segCount; startIdx++) {
+      if (used[startIdx]) continue;
+      used[startIdx] = 1;
+      const chain = [aPts[startIdx], bPts[startIdx]];
+      let currentKey = bKeys[startIdx];
+      while (true) {
+        const arr = adjacency.get(currentKey);
+        let found = -1;
+        if (arr) {
+          for (let m = 0; m < arr.length; m += 3) {
+            if (!used[arr[m + 2]]) { found = m; break; }
+          }
+        }
+        if (found < 0) break;
+        used[arr[found + 2]] = 1;
+        chain.push(arr[found + 1]);
+        currentKey = arr[found];
+      }
+      drawChain(chain);
     }
   }
 
@@ -480,9 +531,9 @@
       minX -= pad; maxX += pad;
       minY -= pad; maxY += pad;
 
-      marchCluster(group, minX, minY, maxX, maxY, GRID_STEP, (p1, p2) => {
-        ctx.moveTo(p1[0], p1[1]);
-        ctx.lineTo(p2[0], p2[1]);
+      marchCluster(group, minX, minY, maxX, maxY, GRID_STEP, chain => {
+        ctx.moveTo(chain[0][0], chain[0][1]);
+        for (let i = 1; i < chain.length; i++) ctx.lineTo(chain[i][0], chain[i][1]);
       });
     });
 
