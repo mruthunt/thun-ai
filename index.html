@@ -212,15 +212,13 @@
     });
   }
 
-  // scroll no longer holds a fixed "how far down the page" bias — only
-  // scroll VELOCITY drives the pills now, so the pull is always
-  // momentary. scrollEcho is an envelope follower: it snaps up instantly
-  // with scroll speed, then decays slowly, so the GAP between it and the
-  // current (fast-settling) speed is large right after scrolling stops
-  // and fades back to zero shortly after — that gap is what drives the
-  // condensing "snap back together" pulse below
+  // scroll direction (not position) drives the pills: scrolling down
+  // always scatters them outward, scrolling up always condenses them
+  // back in. scrollVel is a lightly smoothed, SIGNED velocity (+ down,
+  // - up) so the force tracks scroll direction moment to moment without
+  // being jittery frame to frame
   let lastScrollY = window.scrollY;
-  let scrollEcho = 0;
+  let scrollVel = 0;
 
   // exact distance to a capsule (stadium) from point a to point b with
   // radius r; a circle is just the special case a === b
@@ -400,10 +398,9 @@
     const cx = w / 2, cy = h / 2;
 
     const currentScrollY = window.scrollY;
-    const scrollSpeed = Math.abs(currentScrollY - lastScrollY);
+    const rawScrollDelta = currentScrollY - lastScrollY;
     lastScrollY = currentScrollY;
-    scrollEcho = scrollSpeed > scrollEcho ? scrollSpeed : scrollEcho * 0.93;
-    const condenseGap = Math.max(0, scrollEcho - scrollSpeed);
+    scrollVel = scrollVel * 0.8 + rawScrollDelta * 0.2;
 
     pills.forEach(p => {
       const wanderX = Math.sin(time * 0.15 + p.seed) * 0.05;
@@ -421,19 +418,17 @@
         }
       }
 
-      // scroll MOTION scatters pills outward while it's actively
-      // happening; the instant it eases off, a stronger "snap back
-      // together" pulse gathers them back in (same condense > scatter
-      // bias as before), then fades to nothing. because it's driven by
-      // velocity rather than scroll position, it never settles into a
-      // fixed pull — once it fades, the (now stronger) mouse pull above
-      // is what decides where things gravitate at rest
+      // scrolling down always scatters pills outward; scrolling up
+      // always condenses them back in — direction maps directly to
+      // direction, no ambiguity. condense is still the stronger of the
+      // two (same bias as before) so pills gather back faster than they
+      // spread out. it settles to zero the moment scrolling stops, so
+      // the mouse pull above is what decides where things rest
       const tdx = p.x - cx, tdy = p.y - cy;
       const tdist = Math.sqrt(tdx * tdx + tdy * tdy) || 1;
       const SCROLL_NORM = 6;
-      const scatterT = Math.min(1, scrollSpeed / SCROLL_NORM);
-      const condenseT = Math.min(1, condenseGap / SCROLL_NORM);
-      const homeForce = scatterT * 0.4 - condenseT * 0.5;
+      const scrollT = Math.max(-1, Math.min(1, scrollVel / SCROLL_NORM));
+      const homeForce = scrollT > 0 ? scrollT * 0.4 : scrollT * 0.5;
       p.vx += (tdx / tdist) * homeForce;
       p.vy += (tdy / tdist) * homeForce;
 
