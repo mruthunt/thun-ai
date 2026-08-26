@@ -63,8 +63,8 @@
     font-family: "Baloo 2", "Helvetica Neue", Helvetica, Arial, sans-serif;
     font-weight: 700;
     font-size: 17px;
-    color: #ffe14d;
-    background: rgba(0, 0, 0, 0.22);
+    color: #ff7a1a;
+    background: #dcdcdc;
     border: none;
     border-radius: 999px;
     padding: 13px 22px;
@@ -83,6 +83,13 @@
     color: rgba(0, 0, 0, 0.4);
     padding: 0 20px;
     pointer-events: none;
+  }
+  /* phone-width viewports specifically — the 14px footer reads too
+     small on an iPhone even though it's a fine subtle size on desktop */
+  @media (max-width: 480px) {
+    .footer-note {
+      font-size: 17px;
+    }
   }
 </style>
 </head>
