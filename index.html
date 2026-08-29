@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Thunai - துணை</title>
 <meta name="description" content="Thunai - துணை">
 <meta property="og:title" content="Thunai - துணை">
@@ -190,10 +191,15 @@
     text.style.height = h + 'px';
     text.textContent = label;
     labelLayer.appendChild(text);
-    // start each word pill in its row-formation slot
+    // start each word pill in its row-formation slot. offX/offY (the
+    // pure content offset from page center, independent of viewport
+    // size) are kept on the pill itself so the formation can be
+    // re-centered later against whatever the CURRENT window size turns
+    // out to be — see the resize listener below.
     const row = Math.floor(i / ROW_COLS), col = i % ROW_COLS;
-    const homeX = window.innerWidth / 2 + rowCenters[row][col];
-    const homeY = window.innerHeight / 2 + rowY[row];
+    const offX = rowCenters[row][col], offY = rowY[row];
+    const homeX = window.innerWidth / 2 + offX;
+    const homeY = window.innerHeight / 2 + offY;
     // how far this pill's own outline can reach from its center point —
     // used to keep the boundary clamp on the OUTLINE, not just the
     // center, so nothing pokes past the page edge. exact half-extent
@@ -203,6 +209,7 @@
     return {
       x: homeX,
       y: homeY,
+      offX, offY,
       vx: rand(-0.2, 0.2),
       vy: rand(-0.2, 0.2),
       w, h, wOuter, hOuter, margin,
@@ -382,6 +389,23 @@
   // at all — the very first scroll (any direction) is what wakes the
   // whole simulation up and lets it scatter into free motion
   let hasScattered = false;
+  // mobile browsers can report a window.innerWidth/innerHeight at page
+  // load that doesn't match where the viewport actually settles a
+  // moment later (the URL bar/toolbar chrome finishing its own resize,
+  // an orientation that hasn't locked in yet, etc). since every pill's
+  // starting x/y was computed once from whatever size was current at
+  // that instant, a mismatch there was baking the WRONG center into the
+  // whole formation — showing up as the blob appearing off toward a
+  // corner instead of centered, intermittently, only on mobile. once
+  // scattered, this no longer applies (real physics owns the position by
+  // then), so this only ever re-centers the still-pinned formation.
+  window.addEventListener('resize', () => {
+    if (hasScattered) return;
+    pills.forEach(p => {
+      p.x = window.innerWidth / 2 + p.offX;
+      p.y = window.innerHeight / 2 + p.offY;
+    });
+  });
   // a click (desktop) or a tap (mobile, detected in touchend above)
   // works just as well as a scroll to kick off the same first disperse —
   // feeds a scatter-sized delta into the same pipeline a real scroll
